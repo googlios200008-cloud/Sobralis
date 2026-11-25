@@ -1,0 +1,113 @@
+# Isolated public-synthetic demo only. Bind to localhost, not the internet.
+name: sobralis-test
+services:
+  db:
+    image: postgres:16-bookworm
+    command: ["postgres", "-c", "timezone=UTC", "-c", "log_statement=none", "-c", "log_min_error_statement=panic", "-c", "log_error_verbosity=terse"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: sobralis_demo
+      POSTGRES_USER: sobralis_admin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Missing POSTGRES_PASSWORD}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?Missing APP_DB_PASSWORD}
+      MIGRATOR_DB_PASSWORD: ${MIGRATOR_DB_PASSWORD:?Missing MIGRATOR_DB_PASSWORD}
+    volumes:
+      - demo_data:/var/lib/postgresql/data
+      - ./infra/postgres/10-init-roles.sh:/docker-entrypoint-initdb.d/10-init-roles.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [private]
+  migrate:
+    build: ./backend
+    command: ["node", "dist/migrate.js"]
+    restart: "no"
+    depends_on:
+      db: {condition: service_healthy}
+    environment:
+      NODE_ENV: development
+      DB_HOST: db
+      DB_NAME: sobralis_demo
+      DB_USER: sobralis_migrator
+      DB_PASSWORD: ${MIGRATOR_DB_PASSWORD:?Missing MIGRATOR_DB_PASSWORD}
+    networks: [private]
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+  seed:
+    build: ./backend
+    command: ["node", "dist/seed-demo.js"]
+    restart: "no"
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    environment:
+      ALLOW_DEMO_SEED: "yes"
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: sobralis_demo
+      TEST_ADMIN_PASSWORD: ${POSTGRES_PASSWORD:?Missing POSTGRES_PASSWORD}
+    networks: [private]
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+  api:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      seed: {condition: service_completed_successfully}
+    environment:
+      NODE_ENV: development
+      HOST: 127.0.0.1
+      PORT: "8080"
+      DB_HOST: db
+      DB_NAME: sobralis_demo
+      DB_USER: sobralis_runtime
+      DB_PASSWORD: ${APP_DB_PASSWORD:?Missing APP_DB_PASSWORD}
+      PUBLIC_ORIGIN: http://localhost:4175
+      CSRF_SECRET: ${CSRF_SECRET:?Missing CSRF_SECRET}
+      DEMO_SHARED_LOGIN_LIMIT: "true"
+      DEMO_SHARED_ACTION_LIMIT: "true"
+      REGISTRATION_ENABLED: "false"
+    ports: ["127.0.0.1:4175:4175"]
+    networks: [private]
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  frontend:
+    build:
+      context: .
+      dockerfile: infra/Dockerfile.demo-frontend
+    restart: unless-stopped
+    depends_on:
+      api: {condition: service_healthy}
+    network_mode: service:api
+    environment:
+      NODE_ENV: development
+      DB_NAME: sobralis_demo
+      PUBLIC_ORIGIN: http://localhost:4175
+      PREVIEW_PORT: "4175"
+      API_PORT: "8080"
+      DEMO_START: original
+      DEMO_QUICK_LOGIN: "yes"
+      DEMO_SESSION_BRIDGE: "yes"
+      DEMO_INLINE: "yes"
+      DEMO_AUTO_LOGIN: "yes"
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+volumes:
+  demo_data:
+networks:
+  private:
+    internal: true

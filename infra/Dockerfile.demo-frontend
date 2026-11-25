@@ -1,0 +1,8 @@
+# Public synthetic demo frontend only. Not suitable for production data.
+FROM node:20-bookworm-slim
+WORKDIR /app
+COPY --chown=node:node index.html style.css shared.css app.js enhancements.js party.js backup.js shared.js family.js trip-ui.js host-ui.js cloud.js cloud.css cloud.html registration.html registration.js registration.css recovery.html recovery.js hero-web.webp hero.png manifest.webmanifest ./
+COPY --chown=node:node assets ./assets
+COPY --chown=node:node infra/dev-proxy.cjs ./infra/dev-proxy.cjs
+USER node
+CMD ["node", "infra/dev-proxy.cjs"]

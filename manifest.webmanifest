@@ -1,0 +1,16 @@
+{
+  "name": "Собрались! — ваши люди, ваши планы",
+  "short_name": "Собрались!",
+  "description": "Тестовое приложение для планирования встреч и семейных графиков.",
+  "lang": "ru",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f8f5fc",
+  "theme_color": "#7860db",
+  "icons": [
+    {"src": "/assets/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "/assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"}
+  ]
+}

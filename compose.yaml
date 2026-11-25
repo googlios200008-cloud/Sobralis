@@ -1,0 +1,91 @@
+name: sobralis
+services:
+  db:
+    image: postgres:16-bookworm
+    # Avoid query text and DETAIL fields in PostgreSQL logs: they may include PII.
+    command: ["postgres", "-c", "timezone=UTC", "-c", "log_timezone=UTC", "-c", "log_statement=none", "-c", "log_min_duration_statement=-1", "-c", "log_min_error_statement=panic", "-c", "log_error_verbosity=terse"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: sobralis
+      POSTGRES_USER: sobralis_admin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?Set APP_DB_PASSWORD in .env}
+      MIGRATOR_DB_PASSWORD: ${MIGRATOR_DB_PASSWORD:?Set MIGRATOR_DB_PASSWORD in .env}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./infra/postgres/10-init-roles.sh:/docker-entrypoint-initdb.d/10-init-roles.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    networks: [private]
+  migrate:
+    build: ./backend
+    command: ["node", "dist/migrate.js"]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: sobralis
+      DB_USER: sobralis_migrator
+      DB_PASSWORD: ${MIGRATOR_DB_PASSWORD:?Set MIGRATOR_DB_PASSWORD in .env}
+    networks: [private]
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+  api:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "8080"
+      SAFE_DIAGNOSTICS: ${SAFE_DIAGNOSTICS:-false}
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: sobralis
+      DB_USER: sobralis_runtime
+      DB_PASSWORD: ${APP_DB_PASSWORD:?Set APP_DB_PASSWORD in .env}
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?Set PUBLIC_ORIGIN in .env}
+      CSRF_SECRET: ${CSRF_SECRET:?Set CSRF_SECRET in .env}
+      TRUSTED_PROXY_IP: ${TRUSTED_PROXY_IP:-}
+      REGISTRATION_ENABLED: ${REGISTRATION_ENABLED:-false}
+      PASSWORD_RESET_ENABLED: ${PASSWORD_RESET_ENABLED:-false}
+      DATA_CONSENT_VERSION: ${DATA_CONSENT_VERSION:-}
+      DATA_CONSENT_URL: ${DATA_CONSENT_URL:-}
+      TERMS_VERSION: ${TERMS_VERSION:-}
+      TERMS_URL: ${TERMS_URL:-}
+      EMAIL_MODE: ${EMAIL_MODE:-disabled}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_TLS_MODE: ${SMTP_TLS_MODE:-starttls}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+    ports:
+      - "127.0.0.1:8080:8080"
+    networks: [private]
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+volumes:
+  pg_data:
+networks:
+  private:
+    internal: true

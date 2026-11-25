@@ -1,0 +1,28 @@
+'use strict';
+const {test}=require('node:test'),assert=require('node:assert/strict'),http=require('node:http');
+const {createGateway,validateOrigin}=require('../infra/site-gateway.cjs');
+const listen=s=>new Promise((resolve,reject)=>s.listen(0,'127.0.0.1',e=>e?reject(e):resolve(s.address().port)));
+const close=s=>new Promise(resolve=>s.close(resolve));
+function request(port,path,options={}){return new Promise((resolve,reject)=>{const req=http.request({host:'127.0.0.1',port,path,method:options.method||'GET',headers:{host:'front.example.test',...options.headers}},res=>{const chunks=[];res.on('data',b=>chunks.push(b));res.on('end',()=>resolve({status:res.statusCode,headers:res.headers,body:Buffer.concat(chunks).toString()}))});req.on('error',reject);req.end(options.body)})}
+test('gateway accepts only exact HTTPS public origins and loopback API port',()=>{
+ for(const value of ['',null,'http://front.example.test','https://front.example.test/','https://front.example.test?x=1','https://u@front.example.test','https://front.example.test#token','https://front.example.test:443','https://FRONT.example.test'])assert.equal(validateOrigin(value),null,String(value));
+ assert.ok(validateOrigin('https://front.example.test'));assert.ok(validateOrigin('https://front.example.test:8443'));
+ assert.throws(()=>createGateway({publicOrigin:'https://front.example.test',apiPort:0}));assert.throws(()=>createGateway({publicOrigin:'http://front.example.test',apiPort:8080}));
+});
+test('gateway serves only mapped frontend paths and securely proxies the same-origin API',async()=>{
+ let observed;const upstream=http.createServer((req,res)=>{const chunks=[];req.on('data',x=>chunks.push(x));req.on('end',()=>{observed={headers:req.headers,path:req.url,method:req.method,body:Buffer.concat(chunks).toString()};res.setHeader('Content-Type','application/json');res.setHeader('Cache-Control','no-store');res.setHeader('Set-Cookie','__Host-test=abc; Secure; HttpOnly; SameSite=Strict; Path=/');res.end('{"ok":true}')})});
+ const apiPort=await listen(upstream),gateway=createGateway({publicOrigin:'https://front.example.test',apiPort}),port=await listen(gateway);
+ try{
+  const page=await request(port,'/');assert.equal(page.status,200);assert.match(page.body,/собрались/);assert.match(page.headers['content-security-policy'],/frame-ancestors 'none'/);assert.equal(page.headers['x-frame-options'],'DENY');assert.equal(page.headers['referrer-policy'],'no-referrer');assert.equal(page.headers['cache-control'],'no-store');
+  for(const name of ['/index.html','/cloud.html','/verify-email#ignored','/reset-password','/registration.html','/recovery.html','/cloud.js?v=14','/assets/icon-192.png'])assert.equal((await request(port,name)).status,200,name);
+  assert.match(page.headers['content-security-policy'],/script-src 'self';/);assert.doesNotMatch(page.headers['content-security-policy'].split(';').find(x=>x.trim().startsWith('script-src')),/unsafe-inline|unsafe-eval/);
+  for(const name of ['/cloud.html','/verify-email','/registration.html','/reset-password','/recovery.html']){const r=await request(port,name),script=r.headers['content-security-policy'].split(';').map(x=>x.trim()).find(x=>x.startsWith('script-src '));assert.equal(script.trim(),"script-src 'self'",name);assert.doesNotMatch(script,/unsafe-inline|unsafe-eval/,name);assert.ok(r.headers['content-security-policy'].split(';').map(x=>x.trim()).includes("style-src 'self'"),name)}
+  const head=await request(port,'/index.html',{method:'HEAD'});assert.equal(head.status,200);assert.equal(head.body,'');assert.equal((await request(port,'/index.html',{method:'POST'})).status,405);
+  for(const name of ['/demo-config','/backend/package.json','/../backend/package.json','/%2e%2e/backend/package.json','//evil.test/x','/assets/../../.env','/experiments/local-transactions/idb-store.js','/does-not-exist'])assert.notEqual((await request(port,name)).status,200,name);
+  assert.equal((await request(port,'/index.html',{headers:{host:'evil.test'}})).status,421);assert.equal((await request(port,'http://evil.test/path')).status,400);assert.equal((await request(port,'/api/auth/me',{method:'OPTIONS'})).status,405);
+  const payload=JSON.stringify({name:'synthetic'});const reply=await request(port,'/api/communities?x=1',{method:'POST',headers:{origin:'https://front.example.test','content-type':'application/json','content-length':String(Buffer.byteLength(payload)),cookie:'__Host-test=abc','x-csrf-token':'token','x-demo-session':'ignored','x-forwarded-for':'192.0.2.1','x-forwarded-proto':'https','x-real-ip':'192.0.2.2',forwarded:'for=192.0.2.3'},body:payload});
+  assert.equal(reply.status,200);assert.equal(reply.body,'{"ok":true}');assert.match(reply.headers['set-cookie'][0],/HttpOnly/);assert.equal(reply.headers['access-control-allow-origin'],undefined);assert.equal(observed.path,'/api/communities?x=1');assert.equal(observed.body,payload);assert.equal(observed.headers.cookie,'__Host-test=abc');assert.equal(observed.headers.origin,'https://front.example.test');assert.equal(observed.headers['x-csrf-token'],'token');for(const h of ['x-demo-session','x-forwarded-for','x-forwarded-proto','x-real-ip','forwarded'])assert.equal(observed.headers[h],undefined,h);
+  const large='x'.repeat(16385);assert.equal((await request(port,'/api/communities',{method:'POST',headers:{'content-length':String(large.length)},body:large})).status,413);assert.equal((await request(port,'/api/communities',{method:'POST',headers:{'transfer-encoding':'chunked'},body:large})).status,413);
+  await close(upstream);const unavailable=await request(port,'/api/auth/me');assert.equal(unavailable.status,503);assert.equal(JSON.parse(unavailable.body).error,'UNAVAILABLE');
+ }finally{await close(gateway);await close(upstream)}
+});
