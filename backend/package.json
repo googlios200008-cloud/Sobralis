@@ -1,0 +1,59 @@
+{
+  "name": "sobralis-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "migrate": "node dist/migrate.js",
+    "test": "tsx --test tests/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:live": "tsx tests/live-auth.ts",
+    "test:live-entitlements": "tsx tests/live-entitlements.ts",
+    "test:live-invites": "tsx tests/live-invites.ts",
+    "test:live-trips": "tsx tests/live-trips.ts",
+    "test:live-events": "tsx tests/live-events.ts",
+    "test:live-hosts": "tsx tests/live-hosts.ts",
+    "test:live-polls": "tsx tests/live-polls.ts",
+    "test:live-comments": "tsx tests/live-comments.ts",
+    "test:live-direct": "tsx tests/live-direct.ts",
+    "test:live-community-invites": "tsx tests/live-community-invites.ts",
+    "test:live-community-upgrade": "tsx tests/live-community-upgrade.ts",
+    "test:live-schedule-delegation": "tsx tests/live-schedule-delegation.ts",
+    "test:live-trip-members": "tsx tests/live-trip-members.ts",
+    "test:browser-registration": "tsx tests/browser-registration.ts",
+    "test:live-recovery": "tsx tests/live-recovery.ts",
+    "test:browser-recovery": "tsx tests/browser-recovery.ts",
+    "test:live-recovery-upgrade": "tsx tests/live-recovery-upgrade.ts",
+    "test:live-event-cancellation": "tsx tests/live-event-cancellation.ts",
+    "test:live-event-edit": "tsx tests/live-event-edit.ts",
+    "test:live-trip-edit": "tsx tests/live-trip-edit.ts",
+    "test:live-trip-cancel": "tsx tests/live-trip-cancel.ts",
+    "test:live-community-once": "tsx tests/live-community-once.ts"
+  },
+  "dependencies": {
+    "@fastify/cookie": "11.0.2",
+    "@fastify/helmet": "^13.0.2",
+    "@fastify/rate-limit": "^10.3.0",
+    "argon2": "^0.44.0",
+    "fastify": "^5.6.2",
+    "nodemailer": "^10.6.1",
+    "pg": "^8.16.3",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.3.13",
+    "@types/node": "^20.19.0",
+    "@types/nodemailer": "^8.0.2",
+    "@types/pg": "^8.15.5",
+    "tsx": "^4.20.6",
+    "typescript": "~5.9.3"
+  },
+  "overrides": {
+    "light-my-request": "6.6.0"
+  }
+}
